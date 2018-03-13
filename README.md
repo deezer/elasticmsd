@@ -103,6 +103,3 @@ The Document in Elasticsearch will look like this:
 }
 ```
 
-## Licence
-
-This software project is proprietary and is copyrighted by Deezer. Unauthorized copying of any content of this software project, via any medium is strictly prohibited.
