@@ -10,18 +10,12 @@ import argparse
 import elasticsearch
 from elasticsearch.exceptions import ConnectionError
 import json
-import logging
-import os
 import sys
 
 import hdf5_getters
 
-# Logging
-logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
-tracer = logging.getLogger('elasticsearch')
-tracer.setLevel(logging.CRITICAL)  # deactivate ES basic logs
-logging.getLogger("requests").setLevel(logging.WARNING)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
+from log import logger
+from track_generator import TrackGeneratorFromDirectory, TrackGeneratorFromSummary
 
 # Location of MSD files. Can be rewritten by command-line arguments.
 # Expect a file structure like {}/[A-Z]/[A-Z]/[A-Z]/*.h5
@@ -69,54 +63,17 @@ class Eshelper:
             if not alive:
                 raise ConnectionError()
         except ConnectionError:
-            logging.error("Elasticsearch server not reachable at {}. Abort.".format(self.es_full_host))
+            logger.error("Elasticsearch server not reachable at {}. Abort.".format(self.es_full_host))
             sys.exit(1)
 
     def check_index_safe(self, force):
         # Check ES index does not exist or force is set
         index_exists = self.es.indices.exists(self.es_index)
         if index_exists and not force:
-            logging.error(
+            logger.error(
                 "An index named {} already exists on host. Use option --force (-f) to bypass this test. Abort."
                 .format(self.es_index))
             sys.exit(1)
-
-
-class TrackGenerator:
-    """
-    This class will generate the next MSD track to be ingested
-    in the ES. The returned hdf5 table object will contain the
-    metadata to ingest.
-
-    The files can either come from the summary file (a huge hdf5
-    file containing 1 million song) or a file structure (one
-    million of a small h5 files)
-    """
-    def __init__(self):
-        self.num_songs = 0
-        self.msd_summary_file = None
-        self.h5_fd = None
-
-    def load_from_summary(self, msd_summary_file):
-        self.msd_summary_file = msd_summary_file
-        self.check_msd_summary_file_exists_or_abort()
-
-        self.h5_fd = hdf5_getters.open_h5_file_read(self.msd_summary_file)
-        self.num_songs = int(hdf5_getters.get_num_songs(self.h5_fd))
-        logging.debug("Found {} songs in summary file".format(self.num_songs))
-
-    def check_msd_summary_file_exists_or_abort(self):
-        file_exists = os.path.exists(self.msd_summary_file)
-        if not file_exists:
-            logging.error("Could not find MSD summary file located at '{}'. Abort.".format(self.msd_summary_file))
-            sys.exit(1)
-
-    def get_track(self):
-        for sng_idx in range(0, self.num_songs):
-            yield self.h5_fd, sng_idx
-
-    def close(self):
-        self.h5_fd.close()
 
 
 class Ingestor:
@@ -146,21 +103,21 @@ class Ingestor:
 
                     msd_doc[msd_field_name] = msd_field_value
                 except AttributeError, e:
-                    logging.debug("ERROR. AttributeError. {}".format(e))
+                    logger.debug("ERROR. AttributeError. {}".format(e))
                     pass
 
             es_bulk_docs[msd_id] = msd_doc
 
             # Ingest bulk if size is enough
             if len(es_bulk_docs) == es_bulk_size:
-                logging.debug("{} files read. Bulk ingest.".format(sng_idx + 1))
-                logging.debug("Last MSD id read: {}".format(msd_id))
+                logger.debug("{} files read. Bulk ingest.".format(sng_idx + 1))
+                logger.debug("Last MSD id read: {}".format(msd_id))
                 self.es_helper.ingest_to_es(es_bulk_docs)
                 es_bulk_docs = {}
 
         if len(es_bulk_docs) > 0:
-            logging.debug("{} files read. Bulk ingest.".format(sng_idx + 1))
-            logging.debug("Last MSD id read: {}".format(msd_id))
+            logger.debug("{} files read. Bulk ingest.".format(sng_idx + 1))
+            logger.debug("Last MSD id read: {}".format(msd_id))
             self.es_helper.ingest_to_es(es_bulk_docs)
 
         self.track_generator.close()
@@ -185,7 +142,8 @@ class Ingestor:
             data = float(data)
 
         return data
-        
+
+
 if __name__ == '__main__':
     # Parse arguments first
     parser = argparse.ArgumentParser()
@@ -193,7 +151,8 @@ if __name__ == '__main__':
     parser.add_argument("-p", "--esport", help="Port of elasticsearch host.", default=ESPORT)
     parser.add_argument("-i", "--esindex", help="Name of index to store to.", default=ESINDEX)
     parser.add_argument("-t", "--estype", help="Type of index to store to.", default=ESTYPE)
-    parser.add_argument("-m", "--msdsummaryfile", help="MSD summary file.", default=MSD_SUMMARY_FILE)
+    parser.add_argument("-m", "--msdsummaryfile", help="MSD summary file.")
+    parser.add_argument("-d", "--msddirectory", help="MSD directory structure.")
     parser.add_argument("-f", "--force", help="Force writing in existing ES index.", default=False, action="store_true")
     args = parser.parse_args()
 
@@ -204,9 +163,18 @@ if __name__ == '__main__':
     eshelper.check_index_safe(force_index)
 
     # Setup track generator
-    track_gen = TrackGenerator()
-    track_gen.load_from_summary(args.msdsummaryfile)
-    track_gen.check_msd_summary_file_exists_or_abort()
+    if args.msdsummaryfile:
+        logger.info("Load summary file {}".format(args.msdsummaryfile))
+        track_gen = TrackGeneratorFromSummary()
+        track_gen.load(args.msdsummaryfile)
+    elif args.msddirectory:
+        logger.info("Use directory {}".format(args.msddirectory))
+        track_gen = TrackGeneratorFromDirectory()
+        track_gen.load(args.msddirectory)
+    else:
+        logger.error("-m or -d must be given as a parameter")
+        sys.exit(1)
+    track_gen.check()
 
     # Setup ingestor
     ingestor = Ingestor(eshelper, track_gen)

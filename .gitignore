@@ -99,3 +99,7 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+.idea/
+hdf5_getters.py
+hdf5_getters_2.py

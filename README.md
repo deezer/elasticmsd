@@ -1,6 +1,6 @@
 # ElasticMSD
 
-This project enables you to convert the MSD summary file into an Elasticsearch index.
+This project enables you to convert the Million Song Dataset into an Elasticsearch index.
 
 ## Why?
 
@@ -31,9 +31,14 @@ pt2to3 hdf5_getters_2.py > hdf5_getters.py
 rm hdf5_getters_2.py
 ```
 
-Download MSD summary file:
+Download MSD summary file (~300Mo):
 ```commandline
 wget http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/msd_summary_file.h5 -O msd_summary_file.h5
+```
+
+Or Download the full MSD (~200Go) from [OSCD](https://www.opensciencedatacloud.org/publicdata/million-song-dataset/):
+```commandline
+rsync -avzuP publicdata.opensciencedatacloud.org::ark:/31807/osdc-c1c763e4/ /path/to/local_copy
 ```
 
 If you need so, you can install a local instance of an Elasticsearch server via docker:
@@ -43,7 +48,9 @@ docker run --rm -p 9200:9200 -p 9300:9300 -d --name=local_elasticsearch elastics
 
 ## Usage
 
-This command will browse the [MSD summary file](https://labrosa.ee.columbia.edu/millionsong/pages/what-are-song-aggregate-summary-files) (a big h5 file) to an Elasticsearch index
+This command will browse the [MSD summary file](https://labrosa.ee.columbia.edu/millionsong/pages/what-are-song-aggregate-summary-files) (a big h5 file) to an Elasticsearch index.
+
+> **Note:** If you want to browse the entire dataset and not just the summary, use the -d argument like `-d /path/to/local/msd`
 
 ```commandline
 python msd_to_es.py \
@@ -80,7 +87,9 @@ optional arguments:
   -t ESTYPE, --estype ESTYPE
                         Type of index to store to.
   -m MSDSUMMARYFILE, --msdsummaryfile MSDSUMMARYFILE
-                        MSD summary file.
+                        MSD summary file (one h5 file for 1M songs)
+  -d MSDDIRECTORY, --msddirectory MSDDIRECTORY
+                        MSD directory strucutre (one h5 file per song)
   -f, --force           Force writing in existing ES index.
 ```
 
